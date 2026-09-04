@@ -485,10 +485,14 @@ class _ChatScreenState extends State<ChatScreen> {
           ],
         ),
         actions: [
-          IconButton(
-            tooltip: 'Find phone on Wi-Fi/LAN',
-            icon: const Icon(Icons.search),
-            onPressed: _busy || _connected ? null : _autoDiscover,
+          AnimatedOpacity(
+            duration: const Duration(milliseconds: 200),
+            opacity: _busy || _connected ? 0.4 : 1,
+            child: IconButton(
+              tooltip: 'Find phone on Wi-Fi/LAN',
+              icon: const Icon(Icons.search, color: Colors.white),
+              onPressed: _busy || _connected ? null : _autoDiscover,
+            ),
           ),
           IconButton(
             tooltip: _connected ? 'Disconnect' : 'Connect',
