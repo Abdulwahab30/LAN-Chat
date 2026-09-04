@@ -487,7 +487,7 @@ class _ChatScreenState extends State<ChatScreen> {
         actions: [
           IconButton(
             tooltip: 'Find phone on Wi-Fi/LAN',
-            icon: const Icon(Icons.wifi_find),
+            icon: const Icon(Icons.search),
             onPressed: _busy || _connected ? null : _autoDiscover,
           ),
           IconButton(
