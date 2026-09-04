@@ -9,6 +9,12 @@ import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
 const port = 8787;
 
+// UDP discovery: the PC broadcasts `_discoverPing` and we answer with
+// `_discoverPong` from our real address, so its IP doesn't need typing in.
+const discoveryPort = 8788;
+const _discoverPing = 'LAN_CHAT_DISCOVER';
+const _discoverPong = 'LAN_CHAT_HERE';
+
 const _bg = Color(0xFF0E0E10);
 const _accent = Color(0xFFEDEDED);
 const _muted = Color(0xFF8A8A8E);
@@ -197,6 +203,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final _offeredFiles = <int, PlatformFile>{}; // files we offered, keyed by id, for serving on request
   final _downloads = <int, FileMessage>{}; // files we requested, keyed by id, awaiting bytes
   int _nextFileId = 0;
+  RawDatagramSocket? _discoverySocket;
 
   @override
   void initState() {
@@ -204,6 +211,24 @@ class _ChatScreenState extends State<ChatScreen> {
     _initForegroundTask();
     WidgetsBinding.instance.addPostFrameCallback((_) => _startForeground());
     _startServer();
+    _startDiscoveryResponder();
+  }
+
+  Future<void> _startDiscoveryResponder() async {
+    try {
+      final socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, discoveryPort);
+      socket.broadcastEnabled = true;
+      _discoverySocket = socket;
+      socket.listen((event) {
+        if (event != RawSocketEvent.read) return;
+        final datagram = socket.receive();
+        if (datagram != null && utf8.decode(datagram.data) == _discoverPing) {
+          socket.send(utf8.encode(_discoverPong), datagram.address, datagram.port);
+        }
+      });
+    } catch (_) {
+      // ponytail: discovery is a nice-to-have; the PC can still type our IP in manually.
+    }
   }
 
   void _initForegroundTask() {
@@ -426,6 +451,7 @@ class _ChatScreenState extends State<ChatScreen> {
   void dispose() {
     _socket?.close();
     _server?.close(force: true);
+    _discoverySocket?.close();
     FlutterForegroundTask.stopService();
     _controller.dispose();
     _scroll.dispose();

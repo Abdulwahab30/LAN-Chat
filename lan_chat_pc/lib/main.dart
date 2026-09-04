@@ -13,6 +13,12 @@ import 'package:file_picker/file_picker.dart';
 const defaultHost = '10.86.104.246';
 const port = 8787;
 
+// UDP discovery: broadcast `_discoverPing` and the phone answers with
+// `_discoverPong` from its real address, so we don't need the IP typed in.
+const discoveryPort = 8788;
+const _discoverPing = 'LAN_CHAT_DISCOVER';
+const _discoverPong = 'LAN_CHAT_HERE';
+
 const _bg = Color(0xFF0E0E10);
 const _accent = Color(0xFFEDEDED);
 const _muted = Color(0xFF8A8A8E);
@@ -185,6 +191,8 @@ class _ChatScreenState extends State<ChatScreen> {
   // plenty for a 2-device LAN link, add jitter if this ever has many peers.
   static const _reconnectDelays = [1, 2, 4, 8, 16, 30];
 
+  bool get _busy => _status == 'Connecting…' || _status == 'Reconnecting…' || _status == 'Searching…';
+
   void _scrollToEnd() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scroll.hasClients) return;
@@ -194,6 +202,35 @@ class _ChatScreenState extends State<ChatScreen> {
         curve: Curves.easeOut,
       );
     });
+  }
+
+  Future<void> _autoDiscover() async {
+    setState(() => _status = 'Searching…');
+    RawDatagramSocket? socket;
+    try {
+      socket = await RawDatagramSocket.bind(InternetAddress.anyIPv4, 0);
+      socket.broadcastEnabled = true;
+      final found = Completer<InternetAddress>();
+      socket.listen((event) {
+        if (event != RawSocketEvent.read) return;
+        final datagram = socket!.receive();
+        if (datagram != null && utf8.decode(datagram.data) == _discoverPong && !found.isCompleted) {
+          found.complete(datagram.address);
+        }
+      });
+      socket.send(utf8.encode(_discoverPing), InternetAddress('255.255.255.255'), discoveryPort);
+      final address = await found.future.timeout(const Duration(seconds: 3));
+      _hostController.text = address.address;
+      await _connect();
+    } on TimeoutException {
+      _showError('No phone found on this network');
+      setState(() => _status = 'Disconnected');
+    } catch (e) {
+      _showError('Search failed: $e');
+      setState(() => _status = 'Disconnected');
+    } finally {
+      socket?.close();
+    }
   }
 
   Future<void> _connect() async {
@@ -449,6 +486,11 @@ class _ChatScreenState extends State<ChatScreen> {
         ),
         actions: [
           IconButton(
+            tooltip: 'Find phone on Wi-Fi/LAN',
+            icon: const Icon(Icons.wifi_find),
+            onPressed: _busy || _connected ? null : _autoDiscover,
+          ),
+          IconButton(
             tooltip: _connected ? 'Disconnect' : 'Connect',
             icon: AnimatedSwitcher(
               duration: const Duration(milliseconds: 200),
@@ -457,9 +499,7 @@ class _ChatScreenState extends State<ChatScreen> {
                 key: ValueKey(_connected),
               ),
             ),
-            onPressed: _status == 'Connecting…' || _status == 'Reconnecting…'
-                ? null
-                : (_connected ? _disconnect : _connect),
+            onPressed: _busy ? null : (_connected ? _disconnect : _connect),
           ),
           IconButton(
             tooltip: 'Phone IP address',

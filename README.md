@@ -25,12 +25,19 @@ flowchart LR
 ```
 
 The phone is always the server (`HttpServer.bind(anyIPv4, 8787)`); the PC is
-always the client and dials in using the phone's IP address (shown under
-Settings → About phone → Status on most Android builds, or read from
-`ipconfig` on the PC side for the USB-tethering adapter's gateway).
+always the client. It finds the phone's IP either automatically — a UDP
+broadcast on port `8788` that the phone answers ("Find phone" button — see
+below) — or manually, by typing the IP shown under Settings → About phone →
+Status on most Android builds, or read from `ipconfig` on the PC side for
+the USB-tethering adapter's gateway.
 
 ## Features
 
+- **Auto-discovery on Wi-Fi/LAN** — the PC's "Find phone" button broadcasts a
+  UDP ping on the local subnet; the phone answers with its address, so no
+  one has to look up or type an IP when both devices share a Wi-Fi network.
+  USB tethering still works too, either via auto-discovery or by typing the
+  IP manually in Settings (⚙).
 - **Text chat** over a single persistent WebSocket connection.
 - **Pull-based file transfer** — sending a file only announces it (name +
   size); the receiver's tap triggers the actual byte transfer, so nothing
@@ -77,6 +84,25 @@ sequenceDiagram
 | `{"type":"file_request","id"}` | receiving side → offering side | ask for the bytes |
 | `{"type":"file_data","id","name","size"}` + binary frame | offering side → receiving side | the actual file bytes |
 
+### Discovery (separate from the chat socket)
+
+A tiny UDP exchange on port `8788`, unrelated to the WebSocket on `8787`,
+just to find the phone's IP:
+
+```mermaid
+sequenceDiagram
+    participant PC
+    participant Phone
+
+    PC->>Phone: UDP broadcast "LAN_CHAT_DISCOVER" (255.255.255.255:8788)
+    Phone-->>PC: UDP "LAN_CHAT_HERE" (from the phone's real IP)
+    Note over PC: Fills in the host field and connects
+```
+
+If nothing answers within 3 seconds (no phone on the subnet, or a firewall
+is blocking UDP broadcasts), the PC shows "No phone found on this network" —
+type the IP into Settings (⚙) instead.
+
 ## Setup
 
 ### Prerequisites
@@ -100,18 +126,19 @@ cd lan_chat_phone
 flutter run   # or: flutter build apk --release
 ```
 
-### 3. Point the PC app at that IP
-`lan_chat_pc/lib/main.dart` has a `defaultHost` constant pre-filled for USB
-tethering; change it or just use the in-app Settings (⚙) dialog to enter the
-phone's IP at runtime.
+### 3. Run the PC app
 ```sh
 cd lan_chat_pc
 flutter run -d windows   # or: flutter build windows --release
 ```
 
 ### 4. Connect
-Tap the connect icon on the PC app. Status turns green and shows the host
-once connected; a dropped link auto-retries on its own.
+On the same Wi-Fi/LAN, tap **Find phone** (the search icon) — it broadcasts
+for the phone and connects automatically. Over USB tethering, or if
+discovery doesn't find it, use Settings (⚙) to type the phone's IP directly
+(`lan_chat_pc/lib/main.dart`'s `defaultHost` constant is just a starting
+value for that field). Status turns green and shows the host once connected;
+a dropped link auto-retries on its own.
 
 ## Building release binaries
 
@@ -128,8 +155,9 @@ cd lan_chat_phone && flutter build apk --release
 ## Known limits
 
 - **No access control on the server** — the phone accepts any WebSocket
-  connection on port `8787`. Fine over a private USB-tethered link; if the
-  phone's Wi-Fi is also on, anything on that network could connect too.
+  connection on port `8787`, and answers any discovery ping on `8788`. Fine
+  over a private USB-tethered link; on shared Wi-Fi, anything else on that
+  network could find and connect to it too.
 - **Whole file held in memory** on both ends during a transfer — fine for
   photos/docs, a very large file will spike memory with no progress
   indicator.
